@@ -24,7 +24,7 @@ class WeatherAPIClient:
     def __init__(self):
         self.base_url = "https://api.open-meteo.com/v1/forecast"
         
-    async def fetch_single_point(self, client: httpx.AsyncClient, lat: float, lon: float, eta: datetime, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
+    async def fetch_single_point(self, client: httpx.AsyncClient, lat: float, lon: float, elevation: float, eta: datetime, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
         """Fetches weather for a single coordinate explicitly requesting the ETA hour to save bandwidth."""
         # Open-Meteo expects YYYY-MM-DDTHH:00 format for start_hour and end_hour
         eta_hour_str = eta.strftime("%Y-%m-%dT%H:00")
@@ -32,6 +32,7 @@ class WeatherAPIClient:
         params = {
             "latitude": lat,
             "longitude": lon,
+            "elevation": elevation,
             "hourly": "temperature_2m,precipitation,wind_speed_10m,weather_code",
             "timezone": "auto",
             "start_hour": eta_hour_str,
@@ -78,14 +79,14 @@ class WeatherAPIClient:
 
     async def fetch_route_weather(self, df: pl.DataFrame) -> pl.DataFrame:
         """Takes a downsampled dataframe and fetches weather concurrently."""
-        points = df.select(["latitude", "longitude", "eta"]).to_dicts()
+        points = df.select(["latitude", "longitude", "elevation", "eta"]).to_dicts()
         
         semaphore = asyncio.Semaphore(5)  # Limitar concurrencia para evitar bloqueos
         
         async with httpx.AsyncClient(limits=httpx.Limits(max_connections=5)) as client:
             tasks = []
             for point in points:
-                tasks.append(self.fetch_single_point(client, point["latitude"], point["longitude"], point["eta"], semaphore))
+                tasks.append(self.fetch_single_point(client, point["latitude"], point["longitude"], point["elevation"], point["eta"], semaphore))
                 
             results = await asyncio.gather(*tasks)
             
