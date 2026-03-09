@@ -1,0 +1,20 @@
+# Environments
+venv/
+env/
+.env
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Streamlit
+.streamlit/
+*.gpx
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+.spyderproject
