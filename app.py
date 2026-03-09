@@ -10,7 +10,7 @@ from src.charts import UIBuilder
 
 st.set_page_config(
     page_title="Analizador de Rutas Meteorológicas",
-    page_icon="🏍️",
+    page_icon="🌦️",
     layout="wide"
 )
 
