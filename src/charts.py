@@ -47,27 +47,46 @@ class UIBuilder:
                 eta_str = w["eta"].strftime("%d/%m/%Y %H:%M") if w.get("eta") else "N/A"
                 if w.get("temperature_2m") is None:
                     tooltip = f"ETA: {eta_str}<br/>Sin datos meteorológicos"
+                    fill_color = [150, 150, 150, 200]
+                    radius = 800
                 else:
                     tooltip = (f"ETA: {eta_str}<br/>"
                                f"Temp: {w['temperature_2m']}°C<br/>"
                                f"Lluvia: {w['precipitation']} mm<br/>"
                                f"Viento: {w['wind_speed_10m']} km/h<br/>"
                                f"Clima: {w['weather_desc']}")
+                    
+                    if w["precipitation"] > 0:
+                        fill_color = [0, 100, 255, 200]
+                        radius = 800 if w["precipitation"] < 5 else 1800
+                    else:
+                        temp = w["temperature_2m"]
+                        if temp >= 30:
+                            fill_color = [255, 50, 50, 200]
+                        elif temp >= 20:
+                            fill_color = [255, 150, 50, 200]
+                        elif temp <= 5:
+                            fill_color = [50, 200, 255, 200]
+                        else:
+                            fill_color = [100, 200, 100, 200]
+                        radius = 800
                 
                 clean_weather_data.append({
                     "longitude": w["longitude"],
                     "latitude": w["latitude"],
-                    "tooltip": tooltip
+                    "tooltip": tooltip,
+                    "fill_color": fill_color,
+                    "radius": radius
                 })
 
             scatter_layer = pdk.Layer(
                 "ScatterplotLayer",
                 data=clean_weather_data,
                 get_position=["longitude", "latitude"],
-                get_fill_color=[50, 150, 255, 200],
-                get_radius=800,
+                get_fill_color="fill_color",
+                get_radius="radius",
                 radius_min_pixels=5,
-                radius_max_pixels=15,
+                radius_max_pixels=25,
                 pickable=True,
             )
             layers.append(scatter_layer)
@@ -104,8 +123,9 @@ class UIBuilder:
                 x=distances, y=elevations,
                 fill='tozeroy',
                 mode='lines',
-                line=dict(color='rgba(100, 100, 100, 0.5)'),
-                name='Elevación (m)'
+                line=dict(color='rgba(100, 100, 100, 0.5)', width=1),
+                name='Elevación',
+                hovertemplate="Dist: %{x:.1f} km<br>Elev: %{y} m<extra></extra>"
             ),
             secondary_y=False,
         )
@@ -114,8 +134,17 @@ class UIBuilder:
             go.Scatter(
                 x=distances, y=temps,
                 mode='lines+markers',
-                line=dict(color='red', width=2),
-                name='Temp (°C)'
+                line=dict(color='rgba(200, 50, 50, 0.3)', width=2),
+                marker=dict(
+                    color=temps,
+                    colorscale='RdYlBu_r',
+                    showscale=True,
+                    colorbar=dict(title="Temp (°C)", thickness=10, len=0.7, y=0.5, yanchor="middle", x=1.05),
+                    size=8,
+                    line=dict(width=1, color='DarkSlateGrey')
+                ),
+                name='Temperatura',
+                hovertemplate="Dist: %{x:.1f} km<br>Temp: %{y}°C<extra></extra>"
             ),
             secondary_y=True,
         )
@@ -124,8 +153,9 @@ class UIBuilder:
             go.Bar(
                 x=distances, y=rains,
                 marker_color='blue',
-                name='Lluvia (mm)',
-                opacity=0.6
+                name='Lluvia',
+                opacity=0.5,
+                hovertemplate="Dist: %{x:.1f} km<br>Lluvia: %{y} mm<extra></extra>"
             ),
             secondary_y=True,
         )

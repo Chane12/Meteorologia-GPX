@@ -25,12 +25,17 @@ class WeatherAPIClient:
         self.base_url = "https://api.open-meteo.com/v1/forecast"
         
     async def fetch_single_point(self, client: httpx.AsyncClient, lat: float, lon: float, eta: datetime, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
-        """Fetches weather for a single coordinate and extracts the hourly value closest to ETA."""
+        """Fetches weather for a single coordinate explicitly requesting the ETA hour to save bandwidth."""
+        # Open-Meteo expects YYYY-MM-DDTHH:00 format for start_hour and end_hour
+        eta_hour_str = eta.strftime("%Y-%m-%dT%H:00")
+        
         params = {
             "latitude": lat,
             "longitude": lon,
             "hourly": "temperature_2m,precipitation,wind_speed_10m,weather_code",
             "timezone": "auto",
+            "start_hour": eta_hour_str,
+            "end_hour": eta_hour_str,
         }
         
         async with semaphore:
@@ -40,28 +45,16 @@ class WeatherAPIClient:
                     response.raise_for_status()
                     data = response.json()
                     
-                    hourly_times = [datetime.fromisoformat(t) for t in data["hourly"]["time"]]
-                    eta_naive = eta.replace(tzinfo=None) if eta.tzinfo else eta
-                    
-                    closest_idx = 0
-                    min_diff = float('inf')
-                    
-                    for i, t in enumerate(hourly_times):
-                        t_naive = t.replace(tzinfo=None) if t.tzinfo else t
-                        diff = abs((t_naive - eta_naive).total_seconds())
-                        if diff < min_diff:
-                            min_diff = diff
-                            closest_idx = i
-                            
-                    wmo_code = data["hourly"]["weather_code"][closest_idx]
+                    # Since we requested a single hour, the lists in "hourly" should have exactly 1 element
+                    wmo_code = data["hourly"]["weather_code"][0]
                     
                     return {
                         "latitude": lat,
                         "longitude": lon,
-                        "eta_weather_time": hourly_times[closest_idx],
-                        "temperature_2m": data["hourly"]["temperature_2m"][closest_idx],
-                        "precipitation": data["hourly"]["precipitation"][closest_idx],
-                        "wind_speed_10m": data["hourly"]["wind_speed_10m"][closest_idx],
+                        "eta_weather_time": datetime.fromisoformat(data["hourly"]["time"][0]),
+                        "temperature_2m": data["hourly"]["temperature_2m"][0],
+                        "precipitation": data["hourly"]["precipitation"][0],
+                        "wind_speed_10m": data["hourly"]["wind_speed_10m"][0],
                         "weather_desc": WMO_CODES_ES.get(wmo_code, "Desconocido")
                     }
                 except (httpx.HTTPStatusError, httpx.RequestError) as e:

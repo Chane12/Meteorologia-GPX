@@ -73,17 +73,25 @@ if st.session_state.polars_df is not None:
             st.subheader("Resumen Meteorológico")
             w_df = st.session_state.weather_df
             
-            max_temp = w_df["temperature_2m"].max()
-            min_temp = w_df["temperature_2m"].min()
-            max_rain = w_df["precipitation"].max()
+            # Filtramos nulos para calcular métricas correctamente
+            valid_w_df = w_df.drop_nulls(subset=["temperature_2m", "precipitation"])
             
-            st.metric("Temp. Máxima Estimada", f"{max_temp}°C")
-            st.metric("Temp. Mínima Estimada", f"{min_temp}°C")
-            
-            if max_rain is not None and max_rain > 0:
-                st.warning(f"⚠️ Previsión de lluvia (Máx: {max_rain}mm).")
+            if valid_w_df.is_empty():
+                st.error("❌ No se pudieron obtener los datos meteorológicos por un error de conexión.")
+                st.metric("Temp. Máxima Estimada", "N/A")
+                st.metric("Temp. Mínima Estimada", "N/A")
             else:
-                st.success("☀️ No se prevé lluvia en la ruta.")
+                max_temp = valid_w_df["temperature_2m"].max()
+                min_temp = valid_w_df["temperature_2m"].min()
+                max_rain = valid_w_df["precipitation"].max()
+                
+                st.metric("Temp. Máxima Estimada", f"{max_temp}°C")
+                st.metric("Temp. Mínima Estimada", f"{min_temp}°C")
+                
+                if max_rain > 0:
+                    st.warning(f"⚠️ Previsión de lluvia (Máx: {max_rain}mm).")
+                else:
+                    st.success("☀️ No se prevé lluvia en la ruta.")
                 
             display_df = w_df.select([
                 pl.col("cumulative_distance_km").round(1).alias("Km"),
@@ -93,7 +101,25 @@ if st.session_state.polars_df is not None:
                 pl.col("weather_desc").alias("Clima")
             ]).to_pandas()
             
-            st.dataframe(display_df, width="stretch", hide_index=True)
+            st.dataframe(
+                display_df, 
+                width="stretch", 
+                hide_index=True,
+                column_config={
+                    "Lluvia (mm)": st.column_config.ProgressColumn(
+                        "Lluvia (mm)",
+                        help="Volumen de precipitación estimada (mm)",
+                        format="%f mm",
+                        min_value=0.0,
+                        max_value=15.0, # Se asume >15mm lluvia muy intensa
+                    ),
+                    "Temp (°C)": st.column_config.NumberColumn(
+                        "Temp (°C)",
+                        help="Temperatura térmica estimada",
+                        format="%f °C",
+                    )
+                }
+            )
             
 if st.session_state.weather_df is not None:
     st.subheader("Perfil de Viaje")
