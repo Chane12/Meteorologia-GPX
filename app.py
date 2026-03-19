@@ -3,10 +3,10 @@ import asyncio
 from datetime import datetime, date, time
 import polars as pl
 
-from src.gpx_processor import GPXProcessor
-from src.geospatial import GeospatialEngine
-from src.weather_client import WeatherAPIClient
-from src.charts import UIBuilder
+from meteorologia_gpx.gpx_processor import GPXProcessor
+from meteorologia_gpx.geospatial import GeospatialEngine
+from meteorologia_gpx.weather_client import WeatherAPIClient
+from meteorologia_gpx.charts import UIBuilder
 
 st.set_page_config(
     page_title="Analizador de Rutas Meteorológicas",

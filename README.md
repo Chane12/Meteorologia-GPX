@@ -22,44 +22,51 @@ En lugar de mirar el tiempo general de una ciudad, esta herramienta analiza las 
 
 ## 🚀 Instalación y Uso Local
 
-Si deseas correr el proyecto en tu propia máquina:
-
-### Requisitos Previos
-
-* Python 3.9 o superior.
-* Se recomienda crear un entorno virtual (`venv` o `conda`).
+Este proyecto utiliza [uv](https://github.com/astral-sh/uv) para una gestión de dependencias y entornos virtual ultra-rápida y reproducible.
 
 ### Pasos
 
-1. **Clonar el repositorio:**
+1. **Instalar `uv`** (si no lo tienes):
+    ```bash
+    curl -LsSf https://astral-sh/uv/install.sh | sh
+    ```
 
+2. **Clonar el repositorio:**
     ```bash
     git clone https://github.com/Chane12/Meteorologia-GPX.git
     cd Meteorologia-GPX
     ```
 
-2. **Instalar las dependencias:**
-
+3. **Sincronizar el entorno e instalar dependencias:**
+    `uv` creará automáticamente un entorno virtual y sincronizará todas las librerías necesarias con el archivo `uv.lock`.
     ```bash
-    pip install -r requirements.txt
+    uv sync
     ```
 
-3. **Ejecutar la aplicación:**
-
+4. **Ejecutar la aplicación:**
     ```bash
-    streamlit run app.py
+    uv run streamlit run app.py
     ```
 
-4. Abre tu navegador en la dirección local que indique Streamlit (normalmente `http://localhost:8501`).
+5. Abre tu navegador en la dirección local que indique Streamlit (normalmente `http://localhost:8501`).
+
+## 🧪 Pruebas (Unit Testing)
+
+Se ha incluido una suite completa de pruebas para asegurar la integridad de los cálculos y el procesamiento de datos:
+
+```bash
+uv run pytest
+```
 
 ## 🛠️ Tecnologías Utilizadas
 
+* **[uv](https://github.com/astral-sh/uv):** Gestión de paquetes y entornos Python de alto rendimiento.
 * **[Streamlit](https://streamlit.io/):** Framework para la interfaz web.
 * **[Polars](https://pola.rs/):** Manipulación eficiente de datos.
 * **[GPXPY](https://github.com/tkrajina/gpxpy):** Parseo de archivos de rutas GPS.
-* **[Open-Meteo API](https://open-meteo.com/):** Proveedor de datos meteorológicos de alta precisión (sin necesidad de API Key).
-* **[PyDeck](https://deckgl.readthedocs.io/) & [Plotly](https://plotly.com/python/):** Creación de mapas 3D avanzados y gráficos financieros/científicos.
-* **[HTTPX](https://www.python-httpx.org/) & Asyncio:** Peticiones de red asíncronas de alto rendimiento.
+* **[Open-Meteo API](https://open-meteo.com/):** Datos meteorológicos de alta precisión (sin API Key).
+* **[PyDeck](https://deckgl.readthedocs.io/) & [Plotly](https://plotly.com/python/):** Mapas 3D y gráficos interactivos.
+* **[HTTPX](https://www.python-httpx.org/) & Asyncio:** Peticiones de red asíncronas optimizadas.
 
 ## 🤝 Contribuciones
 

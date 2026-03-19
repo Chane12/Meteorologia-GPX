@@ -68,10 +68,12 @@ class GeospatialEngine:
         
         downsampled = df.group_by("interval_group", maintain_order=True).first()
         
-        last_group_original = df.tail(1)["interval_group"][0]
-        last_group_downsampled = downsampled.tail(1)["interval_group"][0]
-        if last_group_original != last_group_downsampled:
-            downsampled = pl.concat([downsampled, df.tail(1)])
+        last_point = df.tail(1)
+        # Ensure columns are in the same order as downsampled (which has interval_group as first column)
+        last_point = last_point.select(downsampled.columns)
+        
+        if not downsampled.tail(1).select(["latitude", "longitude"]).equals(last_point.select(["latitude", "longitude"])):
+            downsampled = pl.concat([downsampled, last_point])
             
         return downsampled.drop("interval_group")
 
