@@ -14,10 +14,20 @@ class UIBuilder:
         center_lat = full_route_df["latitude"].mean()
         center_lon = full_route_df["longitude"].mean()
 
+        lat_span = full_route_df["latitude"].max() - full_route_df["latitude"].min()
+        lon_span = full_route_df["longitude"].max() - full_route_df["longitude"].min()
+        max_span = max(lat_span, lon_span)
+        
+        # Simple heuristic for zoom: span of 1 degree ~ zoom 8-9, span of 5 degrees ~ zoom 6
+        if max_span > 5: zoom = 5
+        elif max_span > 2: zoom = 7
+        elif max_span > 0.5: zoom = 9
+        else: zoom = 12
+
         view_state = pdk.ViewState(
             latitude=center_lat,
             longitude=center_lon,
-            zoom=10,
+            zoom=zoom,
             pitch=45,
             bearing=0
         )
@@ -31,7 +41,7 @@ class UIBuilder:
             type="PathLayer",
             data=path_data,
             pickable=True,
-            get_color=[255, 50, 50],
+            get_color=[255, 50, 50],  # Classic Red
             width_scale=20,
             width_min_pixels=3,
             get_path="path",
@@ -134,14 +144,14 @@ class UIBuilder:
             go.Scatter(
                 x=distances, y=temps,
                 mode='lines+markers',
-                line=dict(color='rgba(200, 50, 50, 0.3)', width=2),
+                line=dict(color='#00C9FF', width=3),
                 marker=dict(
                     color=temps,
                     colorscale='RdYlBu_r',
                     showscale=True,
                     colorbar=dict(title="Temp (°C)", thickness=10, len=0.7, y=0.5, yanchor="middle", x=1.05),
-                    size=8,
-                    line=dict(width=1, color='DarkSlateGrey')
+                    size=10,
+                    line=dict(width=1, color='white')
                 ),
                 name='Temperatura',
                 hovertemplate="Dist: %{x:.1f} km<br>Temp: %{y}°C<extra></extra>"
@@ -161,7 +171,12 @@ class UIBuilder:
         )
 
         fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
             title_text="Clima vs Elevación en la Ruta",
+            font=dict(family="Inter, sans-serif", color="#aaa"),
+            xaxis=dict(gridcolor='rgba(255,255,255,0.05)'),
+            yaxis=dict(gridcolor='rgba(255,255,255,0.05)'),
             xaxis_title="Distancia (km)",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             margin=dict(l=0, r=0, t=50, b=0)

@@ -24,15 +24,15 @@ class WeatherAPIClient:
     def __init__(self):
         self.base_url = "https://api.open-meteo.com/v1/forecast"
         
-    async def fetch_single_point(self, client: httpx.AsyncClient, lat: float, lon: float, elevation: float, eta: datetime, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
-        """Fetches weather for a single coordinate explicitly requesting the ETA hour to save bandwidth."""
-        # Open-Meteo expects YYYY-MM-DDTHH:00 format for start_hour and end_hour
-        eta_hour_str = eta.strftime("%Y-%m-%dT%H:00")
+    async def fetch_batch(self, client: httpx.AsyncClient, points: List[Dict[str, Any]], eta_hour: datetime, semaphore: asyncio.Semaphore) -> List[Dict[str, Any]]:
+        """Fetches weather for a list of coordinates for the same hour in a single call."""
+        eta_hour_str = eta_hour.strftime("%Y-%m-%dT%H:00")
         
+        # Open-Meteo allows up to 50 locations per request
         params = {
-            "latitude": lat,
-            "longitude": lon,
-            "elevation": elevation,
+            "latitude": [p["latitude"] for p in points],
+            "longitude": [p["longitude"] for p in points],
+            "elevation": [p["elevation"] for p in points],
             "hourly": "temperature_2m,precipitation,wind_speed_10m,weather_code",
             "timezone": "auto",
             "start_hour": eta_hour_str,
@@ -44,56 +44,94 @@ class WeatherAPIClient:
                 try:
                     response = await client.get(self.base_url, params=params, timeout=15.0)
                     response.raise_for_status()
-                    data = response.json()
+                    data_list = response.json()
                     
-                    # Since we requested a single hour, the lists in "hourly" should have exactly 1 element
-                    wmo_code = data["hourly"]["weather_code"][0]
+                    # If only one location is requested, Open-Meteo returns a dict.
+                    # If multiple, it returns a list of dicts.
+                    if isinstance(data_list, dict):
+                        data_list = [data_list]
                     
-                    return {
-                        "latitude": lat,
-                        "longitude": lon,
-                        "eta_weather_time": datetime.fromisoformat(data["hourly"]["time"][0]),
-                        "temperature_2m": data["hourly"]["temperature_2m"][0],
-                        "precipitation": data["hourly"]["precipitation"][0],
-                        "wind_speed_10m": data["hourly"]["wind_speed_10m"][0],
-                        "weather_desc": WMO_CODES_ES.get(wmo_code, "Desconocido")
-                    }
-                except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                    results = []
+                    for i, data in enumerate(data_list):
+                        wmo_code = data["hourly"]["weather_code"][0]
+                        results.append({
+                            "latitude": points[i]["latitude"],
+                            "longitude": points[i]["longitude"],
+                            "eta_weather_time": datetime.fromisoformat(data["hourly"]["time"][0]),
+                            "temperature_2m": data["hourly"]["temperature_2m"][0],
+                            "precipitation": data["hourly"]["precipitation"][0],
+                            "wind_speed_10m": data["hourly"]["wind_speed_10m"][0],
+                            "weather_desc": WMO_CODES_ES.get(wmo_code, "Desconocido")
+                        })
+                    return results
+                except Exception:
                     if attempt < 2:
                         await asyncio.sleep(1 + attempt * 2)
                         continue
-                    else:
-                        break
-                except Exception:
-                    break
-                    
-            return {
-                "latitude": lat,
-                "longitude": lon,
+            
+            # Error fallback
+            return [{
+                "latitude": p["latitude"],
+                "longitude": p["longitude"],
                 "eta_weather_time": None,
                 "temperature_2m": None,
                 "precipitation": None,
                 "wind_speed_10m": None,
                 "weather_desc": "Error de conexión"
-            }
+            } for p in points]
 
     async def fetch_route_weather(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Takes a downsampled dataframe and fetches weather concurrently."""
-        points = df.select(["latitude", "longitude", "elevation", "eta"]).to_dicts()
+        """Groups points by ETA hour and fetches weather in batches."""
+        # Add a column for the ETA hour to group by
+        df_with_hour = df.with_columns(
+            pl.col("eta").dt.truncate("1h").alias("eta_hour")
+        )
         
-        semaphore = asyncio.Semaphore(5)  # Limitar concurrencia para evitar bloqueos
+        # Group points by hour
+        hour_groups = df_with_hour.group_by("eta_hour", maintain_order=True).all()
         
-        async with httpx.AsyncClient(limits=httpx.Limits(max_connections=5)) as client:
+        semaphore = asyncio.Semaphore(5)  # Back to conservative semaphore as requests are larger
+        limits = httpx.Limits(max_connections=5, max_keepalive_connections=2)
+        headers = {"User-Agent": "Meteorologia-GPX-Optimizer/1.0 (https://github.com/Chane12/Meteorologia-GPX)"}
+        
+        async with httpx.AsyncClient(limits=limits, headers=headers) as client:
             tasks = []
-            for point in points:
-                tasks.append(self.fetch_single_point(client, point["latitude"], point["longitude"], point["elevation"], point["eta"], semaphore))
+            for hour_row in hour_groups.to_dicts():
+                eta_hour = hour_row["eta_hour"]
+                # Create dicts for each point in this hour
+                lats = hour_row["latitude"]
+                lons = hour_row["longitude"]
+                eles = hour_row["elevation"]
                 
-            results = await asyncio.gather(*tasks)
+                points_in_hour = []
+                for i in range(len(lats)):
+                    points_in_hour.append({
+                        "latitude": lats[i],
+                        "longitude": lons[i],
+                        "elevation": eles[i]
+                    })
+                
+                # Split points_in_hour into chunks of 50 if necessary
+                for i in range(0, len(points_in_hour), 50):
+                    chunk = points_in_hour[i:i+50]
+                    tasks.append(self.fetch_batch(client, chunk, eta_hour, semaphore))
+                    
+            batch_results = await asyncio.gather(*tasks)
             
-        weather_df = pl.DataFrame(results)
+        # Flatten the list of lists
+        flat_results = [item for sublist in batch_results for item in sublist]
+        weather_df_results = pl.DataFrame(flat_results)
         
-        resulting_df = df.hstack(weather_df.select(
-            ["eta_weather_time", "temperature_2m", "precipitation", "wind_speed_10m", "weather_desc"]
-        ))
+        # Join the results back to the original points based on lat/lon
+        # Pre-calculated to be in the same order as df, but join is safer
+        # Actually hstack is only safe if we maintain order perfectly. 
+        # Since maintain_order=True in group_by, and we process in order, it SHOULD be fine.
+        # But let's use join for safety.
+        
+        resulting_df = df.join(
+            weather_df_results,
+            on=["latitude", "longitude"],
+            how="left"
+        )
         
         return resulting_df

@@ -35,6 +35,11 @@ class GPXProcessor:
         df = pl.DataFrame(points_data)
         
         if df.is_empty():
-            raise ValueError("El archivo GPX no contiene puntos válidos.")
+            raise ValueError("El archivo GPX no contiene puntos válidos en trk/trkseg o rte.")
             
+        # Check if elevation is all zeros (common if missing in GPX)
+        if (df["elevation"] == 0.0).all():
+            import streamlit as st
+            st.sidebar.warning("⚠️ El archivo GPX no contiene datos de elevación. El perfil se mostrará plano.")
+
         return df

@@ -7,6 +7,7 @@ from meteorologia_gpx.gpx_processor import GPXProcessor
 from meteorologia_gpx.geospatial import GeospatialEngine
 from meteorologia_gpx.weather_client import WeatherAPIClient
 from meteorologia_gpx.charts import UIBuilder
+from meteorologia_gpx.style_utils import StyleManager
 
 st.set_page_config(
     page_title="Analizador de Rutas Meteorológicas",
@@ -20,44 +21,56 @@ def init_session_state():
     if "weather_df" not in st.session_state:
         st.session_state.weather_df = None
 
+@st.cache_data(show_spinner=False)
+def get_route_data(gpx_content):
+    full_route_df = GPXProcessor.parse_to_dataframe(gpx_content)
+    full_route_df = GeospatialEngine.calculate_cumulative_distance(full_route_df)
+    return full_route_df
+
+@st.cache_data(show_spinner=False)
+def get_weather_forecast(_polars_df, interval, start_dt, speed):
+    downsampled_df = GeospatialEngine.downsample_by_distance(_polars_df, interval)
+    eta_df = GeospatialEngine.calculate_etas(downsampled_df, start_dt, speed)
+    weather_client = WeatherAPIClient()
+    return asyncio.run(weather_client.fetch_route_weather(eta_df))
+
 init_session_state()
+StyleManager.inject_css()
 
-st.sidebar.title("🛣️ Configuración")
-uploaded_file = st.sidebar.file_uploader("Sube tu archivo GPX", type=["gpx"])
+# --- Sidebar Configuration ---
+with st.sidebar:
+    st.markdown("## 🛣️ Configuración")
+    uploaded_file = st.file_uploader("Sube tu archivo GPX", type=["gpx"], help="Arrastra tu archivo .gpx aquí.")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🕒 Detalles de Salida")
+    start_date = st.sidebar.date_input("Fecha de Salida", date.today())
+    start_time = st.sidebar.time_input("Hora de Salida", time(8, 0))
+    avg_speed = st.sidebar.slider("Velocidad Media (km/h)", min_value=10, max_value=130, value=60)
+    polling_interval = st.sidebar.slider("Intervalo de Clima (km)", min_value=5, max_value=50, value=15)
 
-st.sidebar.markdown("### Detalles de Salida")
-start_date = st.sidebar.date_input("Fecha de Salida", date.today())
-start_time = st.sidebar.time_input("Hora de Salida", time(8, 0))
-avg_speed = st.sidebar.slider("Velocidad Media (km/h)", min_value=10, max_value=130, value=60)
-polling_interval = st.sidebar.slider("Intervalo de Clima (km)", min_value=5, max_value=50, value=15)
-
-st.title("Analizador de Rutas Meteorológicas")
-st.markdown("Carga una ruta GPS, define cuándo sales y evalúa las condiciones climáticas exactas a lo largo de tu viaje.")
+# --- Main Title and Header ---
+StyleManager.render_header("METEO ROUTE ANALYZER", "Optimiza tu viaje con previsión meteorológica precisa en cada punto del camino.")
 
 if uploaded_file is not None:
-    with st.spinner("Analizando archivo GPX..."):
-        gpx_content = uploaded_file.getvalue().decode("utf-8")
-        try:
-            full_route_df = GPXProcessor.parse_to_dataframe(gpx_content)
-            full_route_df = GeospatialEngine.calculate_cumulative_distance(full_route_df)
+    gpx_content = uploaded_file.getvalue().decode("utf-8")
+    try:
+        with st.spinner("Analizando archivo GPX..."):
+            full_route_df = get_route_data(gpx_content)
             st.session_state.polars_df = full_route_df
             
             total_dist = full_route_df["cumulative_distance_km"].tail(1)[0]
             st.sidebar.success(f"Distancia total: {total_dist:.2f} km")
             
-        except Exception as e:
-            st.error(f"Error al leer el archivo GPX: {str(e)}")
-            st.stop()
+    except Exception as e:
+        st.error(f"Error al leer el archivo GPX: {str(e)}")
+        st.stop()
 
     if st.sidebar.button("Calcular Clima en la Ruta", type="primary"):
         start_datetime = datetime.combine(start_date, start_time)
         
         with st.spinner(f"Descargando previsión meteorológica cada {polling_interval} km..."):
-            downsampled_df = GeospatialEngine.downsample_by_distance(st.session_state.polars_df, polling_interval)
-            eta_df = GeospatialEngine.calculate_etas(downsampled_df, start_datetime, avg_speed)
-            
-            weather_client = WeatherAPIClient()
-            weather_df = asyncio.run(weather_client.fetch_route_weather(eta_df))
+            weather_df = get_weather_forecast(st.session_state.polars_df, polling_interval, start_datetime, avg_speed)
             st.session_state.weather_df = weather_df
 
 if st.session_state.polars_df is not None:
@@ -77,21 +90,13 @@ if st.session_state.polars_df is not None:
             valid_w_df = w_df.drop_nulls(subset=["temperature_2m", "precipitation"])
             
             if valid_w_df.is_empty():
-                st.error("❌ No se pudieron obtener los datos meteorológicos por un error de conexión.")
-                st.metric("Temp. Máxima Estimada", "N/A")
-                st.metric("Temp. Mínima Estimada", "N/A")
+                st.error("❌ No se pudieron obtener los datos meteorológicos.")
             else:
                 max_temp = valid_w_df["temperature_2m"].max()
                 min_temp = valid_w_df["temperature_2m"].min()
                 max_rain = valid_w_df["precipitation"].max()
                 
-                st.metric("Temp. Máxima Estimada", f"{max_temp}°C")
-                st.metric("Temp. Mínima Estimada", f"{min_temp}°C")
-                
-                if max_rain > 0:
-                    st.warning(f"⚠️ Previsión de lluvia (Máx: {max_rain}mm).")
-                else:
-                    st.success("☀️ No se prevé lluvia en la ruta.")
+                StyleManager.render_weather_summary(max_temp, min_temp, max_rain)
                 
             display_df = w_df.select([
                 pl.col("cumulative_distance_km").round(1).alias("Km"),
@@ -111,7 +116,7 @@ if st.session_state.polars_df is not None:
                         help="Volumen de precipitación estimada (mm)",
                         format="%f mm",
                         min_value=0.0,
-                        max_value=15.0, # Se asume >15mm lluvia muy intensa
+                        max_value=15.0,
                     ),
                     "Temp (°C)": st.column_config.NumberColumn(
                         "Temp (°C)",
