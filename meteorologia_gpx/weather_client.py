@@ -55,6 +55,7 @@ class WeatherAPIClient:
                     for i, data in enumerate(data_list):
                         wmo_code = data["hourly"]["weather_code"][0]
                         results.append({
+                            "point_id": points[i]["point_id"],
                             "latitude": points[i]["latitude"],
                             "longitude": points[i]["longitude"],
                             "eta_weather_time": datetime.fromisoformat(data["hourly"]["time"][0]),
@@ -71,6 +72,7 @@ class WeatherAPIClient:
             
             # Error fallback
             return [{
+                "point_id": p["point_id"],
                 "latitude": p["latitude"],
                 "longitude": p["longitude"],
                 "eta_weather_time": None,
@@ -82,6 +84,9 @@ class WeatherAPIClient:
 
     async def fetch_route_weather(self, df: pl.DataFrame) -> pl.DataFrame:
         """Groups points by ETA hour and fetches weather in batches."""
+        # Add a unique point_id to safely join back later, avoiding cartesian products
+        df = df.with_row_index("point_id")
+        
         # Add a column for the ETA hour to group by
         df_with_hour = df.with_columns(
             pl.col("eta").dt.truncate("1h").alias("eta_hour")
@@ -99,6 +104,7 @@ class WeatherAPIClient:
             for hour_row in hour_groups.to_dicts():
                 eta_hour = hour_row["eta_hour"]
                 # Create dicts for each point in this hour
+                p_ids = hour_row["point_id"]
                 lats = hour_row["latitude"]
                 lons = hour_row["longitude"]
                 eles = hour_row["elevation"]
@@ -106,6 +112,7 @@ class WeatherAPIClient:
                 points_in_hour = []
                 for i in range(len(lats)):
                     points_in_hour.append({
+                        "point_id": p_ids[i],
                         "latitude": lats[i],
                         "longitude": lons[i],
                         "elevation": eles[i]
@@ -122,16 +129,11 @@ class WeatherAPIClient:
         flat_results = [item for sublist in batch_results for item in sublist]
         weather_df_results = pl.DataFrame(flat_results)
         
-        # Join the results back to the original points based on lat/lon
-        # Pre-calculated to be in the same order as df, but join is safer
-        # Actually hstack is only safe if we maintain order perfectly. 
-        # Since maintain_order=True in group_by, and we process in order, it SHOULD be fine.
-        # But let's use join for safety.
-        
+        # Join the results back based on unique point_id implicitly preventing duplicates
         resulting_df = df.join(
-            weather_df_results,
-            on=["latitude", "longitude"],
+            weather_df_results.drop(["latitude", "longitude"]),
+            on="point_id",
             how="left"
-        )
+        ).drop("point_id")
         
         return resulting_df
