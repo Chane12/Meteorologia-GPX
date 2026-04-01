@@ -73,60 +73,62 @@ if uploaded_file is not None:
             weather_df = get_weather_forecast(st.session_state.polars_df, polling_interval, start_datetime, avg_speed)
             st.session_state.weather_df = weather_df
 
-if st.session_state.polars_df is not None:
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Mapa de la Ruta")
-        pydeck_map = UIBuilder.build_route_map(st.session_state.polars_df, st.session_state.weather_df)
-        st.pydeck_chart(pydeck_map, width="stretch")
-        
-    with col2:
-        if st.session_state.weather_df is not None:
-            st.subheader("Resumen Meteorológico")
-            w_df = st.session_state.weather_df
-            
-            # Filtramos nulos para calcular métricas correctamente
-            valid_w_df = w_df.drop_nulls(subset=["temperature_2m", "precipitation"])
-            
-            if valid_w_df.is_empty():
-                st.error("❌ No se pudieron obtener los datos meteorológicos.")
-            else:
-                max_temp = valid_w_df["temperature_2m"].max()
-                min_temp = valid_w_df["temperature_2m"].min()
-                max_rain = valid_w_df["precipitation"].max()
-                
-                StyleManager.render_weather_summary(max_temp, min_temp, max_rain)
-                
-            display_df = w_df.select([
-                pl.col("cumulative_distance_km").round(1).alias("Km"),
-                pl.col("eta").dt.strftime("%H:%M").alias("ETA"),
-                pl.col("temperature_2m").alias("Temp (°C)"),
-                pl.col("precipitation").alias("Lluvia (mm)"),
-                pl.col("weather_desc").alias("Clima")
-            ]).to_pandas()
-            
-            st.dataframe(
-                display_df, 
-                width="stretch", 
-                hide_index=True,
-                column_config={
-                    "Lluvia (mm)": st.column_config.ProgressColumn(
-                        "Lluvia (mm)",
-                        help="Volumen de precipitación estimada (mm)",
-                        format="%f mm",
-                        min_value=0.0,
-                        max_value=15.0,
-                    ),
-                    "Temp (°C)": st.column_config.NumberColumn(
-                        "Temp (°C)",
-                        help="Temperatura térmica estimada",
-                        format="%f °C",
-                    )
-                }
-            )
-            
 if st.session_state.weather_df is not None:
+    st.markdown("---")
+    st.subheader("Resumen Meteorológico")
+    w_df = st.session_state.weather_df
+    
+    # Filtramos nulos para calcular métricas correctamente
+    valid_w_df = w_df.drop_nulls(subset=["temperature_2m", "precipitation"])
+    
+    if valid_w_df.is_empty():
+        st.error("❌ No se pudieron obtener los datos meteorológicos.")
+    else:
+        max_temp = valid_w_df["temperature_2m"].max()
+        min_temp = valid_w_df["temperature_2m"].min()
+        max_rain = valid_w_df["precipitation"].max()
+        
+        StyleManager.render_weather_summary(max_temp, min_temp, max_rain)
+
+if st.session_state.polars_df is not None:
+    st.markdown("---")
+    st.subheader("Mapa de la Ruta")
+    pydeck_map = UIBuilder.build_route_map(st.session_state.polars_df, st.session_state.weather_df)
+    st.pydeck_chart(pydeck_map, width="stretch")
+
+if st.session_state.weather_df is not None:
+    st.markdown("---")
     st.subheader("Perfil de Viaje")
     timeline_chart = UIBuilder.build_timeline_chart(st.session_state.weather_df)
-    st.plotly_chart(timeline_chart, width="stretch")
+    st.plotly_chart(timeline_chart, width="stretch", use_container_width=True)
+    
+    st.markdown("---")
+    st.subheader("Datos Detallados de Ruta")
+    display_df = w_df.select([
+        pl.col("cumulative_distance_km").round(1).alias("Km"),
+        pl.col("eta").dt.strftime("%H:%M").alias("ETA"),
+        pl.col("temperature_2m").alias("Temp (°C)"),
+        pl.col("precipitation").alias("Lluvia (mm)"),
+        pl.col("weather_desc").alias("Clima")
+    ]).to_pandas()
+    
+    st.dataframe(
+        display_df, 
+        width="stretch", 
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Lluvia (mm)": st.column_config.ProgressColumn(
+                "Lluvia (mm)",
+                help="Volumen de precipitación estimada (mm)",
+                format="%f mm",
+                min_value=0.0,
+                max_value=15.0,
+            ),
+            "Temp (°C)": st.column_config.NumberColumn(
+                "Temp (°C)",
+                help="Temperatura térmica estimada",
+                format="%f °C",
+            )
+        }
+    )
